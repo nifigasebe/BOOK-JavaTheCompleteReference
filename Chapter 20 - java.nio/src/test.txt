@@ -1,0 +1,145 @@
+cls
+
+function CheckPSVersion {
+
+    if ((Get-Host).Version.Major -lt 3) {
+    
+        Write-Host "Требуется верисия Powershell 3.0 или выше. Взять можно тут: F:\Chizhov\-Soft-\Powershell 4.0\ " -BackgroundColor Red
+        Write-Host
+        Write-Host "Нажмите любую клавишу чтобы закрыть окно."    
+    
+        [void][System.Console]::ReadKey($true)
+        break
+    }
+}
+
+function CheckNewScriptVersion {
+
+    $SCRIPT_VERSION = 1.0
+
+    if (Test-Path \\go.rshbank.ru\dfsroot\OrganizationalStructure\IT\Chizhov\-Scripts-\ScriptsData\Printers-Check-Version.txt) { 
+   
+        [double]$LastVersion = Get-Content \\go.rshbank.ru\dfsroot\OrganizationalStructure\IT\Chizhov\-Scripts-\ScriptsData\Printers-Check-Version.txt
+           
+        if ($LastVersion -gt $SCRIPT_VERSION) {
+            
+            Write-Host Доступна новая версия ! "\\go.rshbank.ru\dfsroot\OrganizationalStructure\IT\Chizhov\-Scripts-\" -BackgroundColor Red
+        }    
+    }
+}
+
+function SelectWorkStation { 
+
+    Write-Host "Введите Имя компьютера или IP адресс." -BackgroundColor DarkGray
+
+    $WorkStation = Read-Host       
+
+    try {       
+    
+        $DNSResult = [System.Net.Dns]::GetHostEntry($WorkStation)
+        $ComputerName = $DNSResult.HostName -replace ".go.rshbank.ru"
+        $ComputerName = $ComputerName.ToUpper()    
+    }
+
+    catch [System.Net.Sockets.SocketException] {
+    
+        $ErrorMessage = $_.Exception.Message                  
+    
+        Write-Host
+        Write-Host $WorkStation.ToUpper() $ErrorMessage ! -BackgroundColor Red
+        Write-Host
+        Pause
+        Break        
+    }
+
+    if (!(Test-Connection $ComputerName -Quiet -Count 1)) {
+
+        Write-Host
+        Write-Host $ComputerName оффлайн ! -BackgroundColor Red
+        Write-Host
+        Pause
+        Break
+    }
+
+    return $ComputerName
+}
+
+function GetPrinters ($ComputerName){           
+    
+    $Ports = Get-WmiObject Win32_TcpIpPrinterPort -namespace "root\CIMV2" -ComputerName $ComputerName
+    $Printers = Get-WmiObject Win32_Printer -namespace "root\CIMV2" -ComputerName $ComputerName
+
+    if ($Printers.Count -eq $null){
+        Write-Host
+        Write-Host "Ни один принтер не найден." -ForegroundColor Yellow
+        Write-Host
+        Pause
+        Break 
+    }    
+    
+    $AllPrinters = @() 
+    $AllPortNames = @()
+    $AllPortHostNames = @()
+    
+    foreach ($Printer in $Printers){        
+        
+        $PortHostAddress = $null
+
+        foreach ($Port in $Ports){
+            
+            if ($Port.Name -eq $Printer.PortName){
+            $PortHostAddress = $Port.HostAddress
+            }
+        }
+        
+        if ($PortHostAddress -eq $null){
+            $PortHostAddress = "Невозможно отобразить."
+        }        
+
+        $AllPrinters += $Printer.DeviceID
+        $AllPortNames += $Printer.PortName
+        $AllPortHostNames += $PortHostAddress
+    }   
+    
+    $FinalTable = @()
+    $AllPrintersLength = $AllPrinters.Length    
+    
+    for ($i=0; $i -lt $AllPrintersLength; $i++){
+
+        $object = New-Object PSObject
+        
+        Add-Member -InputObject $object -MemberType NoteProperty -Name Number -Value ""
+        Add-Member -InputObject $object -MemberType NoteProperty -Name Printer -Value ""
+        Add-Member -InputObject $object -MemberType NoteProperty -Name PortName -Value ""
+        Add-Member -InputObject $object -MemberType NoteProperty -Name PortValue -Value "" 
+
+        $object.Number = $i + 1
+        $object.Printer = $AllPrinters[$i]
+        $object.PortName = $AllPortNames[$i]
+        $object.PortValue = $AllPortHostNames[$i]
+
+        $FinalTable += $object
+    }
+    
+    return $FinalTable , $Printers.Count
+}
+
+
+Write-Host ===Printers-Check=== -ForegroundColor Cyan
+Write-Host
+
+CheckPSVersion
+CheckNewScriptVersion
+$ComputerName = SelectWorkStation
+
+Write-Host
+Write-Host "Найдены следующие принтеры: " -BackgroundColor DarkGray
+
+$GetPrinters = GetPrinters -ComputerName $ComputerName
+
+$PrintersQuantity = $GetPrinters[1]
+$FinalTable = $GetPrinters[0]
+
+$FinalTable |Format-Table -AutoSize
+
+pause
